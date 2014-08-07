@@ -1,6 +1,6 @@
 /*
 
-  ## Stats Module
+  ## CalcStats Module
 
   ### Parameters
   * format :: The format of the value returned. (Default: number)
@@ -27,10 +27,10 @@ define([
 
   'use strict';
 
-  var module = angular.module('kibana.panels.stats', []);
+  var module = angular.module('kibana.panels.calcstats', []);
   app.useModule(module);
 
-  module.controller('stats', function ($scope, querySrv, dashboard, filterSrv) {
+  module.controller('calcstats', function ($scope, querySrv, dashboard, filterSrv) {
 
     $scope.panelMeta = {
       modals : [
@@ -109,7 +109,15 @@ define([
       var request,
         results,
         boolQuery,
-        queries;
+        queries,
+        tmp,
+        nonUniqRequestList,
+        requestList,
+        dbItemOfInterestName,
+        dbItemDict = {},
+        numOfAjaxRespReceived = 0,
+        rtnString = $scope.panel.field
+        ;
 
       request = $scope.ejs.Request().indices(dashboard.indices);
 
@@ -123,56 +131,73 @@ define([
         boolQuery = boolQuery.should(querySrv.toEjsObj(q));
       });
 
-      request = request
-        .facet($scope.ejs.StatisticalFacet('stats')
-          .field($scope.panel.field)
-          .facetFilter($scope.ejs.QueryFilter(
-            $scope.ejs.FilteredQuery(
-              boolQuery,
-              filterSrv.getBoolFilter(filterSrv.ids())
-              )))).size(0);
+      // initially, need to scan the string and add ea. @(..) to a list
+      nonUniqRequestList = $scope.panel.field.match(/@content[\.\w]+/g);
+      requestList = _.uniq(nonUniqRequestList); // each item in the array should be unique; list of strings
 
-      _.each(queries, function (q) {
-        var alias = q.alias || q.query;
-        var query = $scope.ejs.BoolQuery();
-        query.should(querySrv.toEjsObj(q));
-        request.facet($scope.ejs.StatisticalFacet('stats_'+alias)
-          .field($scope.panel.field)
-          .facetFilter($scope.ejs.QueryFilter(
-            $scope.ejs.FilteredQuery(
-              query,
-              filterSrv.getBoolFilter(filterSrv.ids())
-            )
-          ))
-        );
-      });
+      requestList.forEach(function(dbItemOfInterestName, i, array) {
+        request = request
+          .facet($scope.ejs.StatisticalFacet('calcstats')
+            .field(dbItemOfInterestName)
+            .facetFilter($scope.ejs.QueryFilter(
+              $scope.ejs.FilteredQuery(
+                boolQuery,
+                filterSrv.getBoolFilter(filterSrv.ids())
+                )))).size(0);
 
-      // Populate the inspector panel
-      $scope.inspector = angular.toJson(JSON.parse(request.toString()),true);
-
-      results = request.doSearch();
-
-      results.then(function(results) {
-        $scope.panelMeta.loading = false;
-        var value = results.facets.stats[$scope.panel.mode];
-
-        var rows = queries.map(function (q) {
+        _.each(queries, function (q) {
           var alias = q.alias || q.query;
-          var obj = _.clone(q);
-          obj.label = alias;
-          obj.Label = alias.toLowerCase(); //sort field
-          obj.value = results.facets['stats_'+alias];
-          obj.Value = results.facets['stats_'+alias]; //sort field
-          return obj;
+          var query = $scope.ejs.BoolQuery();
+          query.should(querySrv.toEjsObj(q));
+          request.facet($scope.ejs.StatisticalFacet('calcstats_'+alias)
+            .field(dbItemOfInterestName)
+            .facetFilter($scope.ejs.QueryFilter(
+              $scope.ejs.FilteredQuery(
+                query,
+                filterSrv.getBoolFilter(filterSrv.ids())
+              )
+            ))
+          );
         });
 
-        $scope.data = {
-          value: value,
-          rows: rows
-        };
+        // Populate the inspector panel
+        $scope.inspector = angular.toJson(JSON.parse(request.toString()),true);
 
+        results = request.doSearch(); // returns a Promise object; sends the AJAX request
 
-        $scope.$emit('render');
+        results.then(function(results) {
+          numOfAjaxRespReceived++;
+          $scope.panelMeta.loading = false;
+          var value = results.facets.calcstats[$scope.panel.mode];
+
+          dbItemDict[dbItemOfInterestName] = value; // todo: maybe store an object instead of a number here for query support
+
+          var rows = queries.map(function (q) {
+            var alias = q.alias || q.query;
+            var obj = _.clone(q);
+            obj.label = alias;
+            obj.Label = alias.toLowerCase(); //sort field
+            obj.value = results.facets['calcstats_'+alias];
+            obj.Value = results.facets['calcstats_'+alias]; //sort field
+            return obj;
+          });
+
+          rtnString = rtnString.split(dbItemOfInterestName).join(dbItemDict[dbItemOfInterestName]);
+
+          if (numOfAjaxRespReceived == array.length) { // at the last item in array
+            // Process the array
+            // go through the string
+
+            value = eval(rtnString);
+
+            $scope.datados = {
+              value: value,
+              rows: rows // rows currently only reflect queries of the last item retrieved from elasticsearch
+            };
+
+            $scope.$emit('render');
+          }
+        });
       });
     };
 
