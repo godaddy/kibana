@@ -190,7 +190,7 @@ define([
 
             value = eval(rtnString);
 
-            $scope.datados = {
+            $scope.data = {
               value: value,
               rows: rows // rows currently only reflect queries of the last item retrieved from elasticsearch
             };
