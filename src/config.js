@@ -75,7 +75,8 @@ function (Settings) {
       'terms',
       'stats',
       'calcstats',
-      'calcstatscompare',      
+      'calcstatscompare',
+      'statsmap',
       'sparklines'
     ]
   });
